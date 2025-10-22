@@ -1,0 +1,232 @@
+import streamlit as st
+import os
+import csv
+import json
+import google.generativeai as genai
+from tavily import TavilyClient
+import pandas as pd
+import re
+from datetime import datetime
+
+# === 1. Setup (ทำงานครั้งเดียว) ===
+# โหลด API Keys จาก Streamlit Secrets
+GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY")
+TAVILY_API_KEY = st.secrets.get("TAVILY_API_KEY")
+CSV_FILENAME = st.secrets.get("CSV_FILENAME", "data/bakery_trends_dataset_updated.csv")
+
+# ตั้งค่า Clients
+try:
+    if not GOOGLE_API_KEY or not TAVILY_API_KEY:
+        st.error("!!! ข้อผิดพลาด: ไม่พบ API Keys ใน Streamlit Secrets (.streamlit/secrets.toml)")
+    else:
+        genai.configure(api_key=GOOGLE_API_KEY)
+        tavily = TavilyClient(api_key=TAVILY_API_KEY)
+except Exception as e:
+    st.error(f"เกิดข้อผิดพลาดในการตั้งค่า API: {e}")
+
+# === 2. (Pre-R) วิเคราะห์ CSV (Cache ไว้) ===
+@st.cache_resource  # ⭐️ Cache ทรัพยากรนี้ไว้ถาวร
+def load_csv_insights():
+    """
+    โหลดและวิเคราะห์ CSV (ทำงานครั้งเดียว)
+    คืนค่าเป็น (String Insights, Boolean Success)
+    """
+    print(f"[{datetime.now()}] Running load_csv_insights...")
+    try:
+        stop_words = {'bakery', 'ขนม', 'เบเกอรี่', 'อร่อย', 'ขายส่ง', 'รับผลิต', '#bakery', '#ขนม', '#เบเกอรี่', '#อร่อย', 'N/A', 'ไม่มีชื่อเรื่อง', ''}
+        title_list, keyword_list, hashtag_list = [], [], []
+
+        with open(CSV_FILENAME, mode='r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                title = row.get('title')
+                if title and title not in stop_words: title_list.append(title.strip())
+                
+                keywords = row.get('keywords')
+                if keywords:
+                    k_words = str(keywords).replace(",", " ").split();
+                    keyword_list.extend([k.strip() for k in k_words if k not in stop_words])
+                
+                hashtags = row.get('hashtags')
+                if hashtags:
+                    h_words = str(hashtags).replace(",", " ").split();
+                    hashtag_list.extend([h.strip() for h in h_words if h not in stop_words])
+
+        csv_insights_list = list(set(title_list + keyword_list + hashtag_list))
+        CSV_INSIGHTS_STR = ", ".join(csv_insights_list)
+        print("วิเคราะห์ CSV สำเร็จ")
+        return CSV_INSIGHTS_STR, True
+
+    except FileNotFoundError:
+        st.error(f"!!! ข้อผิดพลาด: ไม่พบไฟล์ {CSV_FILENAME}")
+        return "", False
+    except Exception as e:
+        st.error(f"เกิดข้อผิดพลาดในการอ่าน CSV: {e}")
+        return "", False
+
+# === 3. (A) System Prompt (เหมือนเดิม) ===
+system_prompt_json = f"""
+คุณคือ **เครื่องมือสกัดข้อมูล (Data Extraction Engine)** ที่เชี่ยวชาญตลาด **"ประเทศไทย"**
+... (คัดลอก System Prompt ทั้งหมดของคุณมาวางที่นี่) ...
+**โครงสร้าง JSON ที่บังคับ (Mandatory JSON Format):**
+json
+[
+  {{ "category": "Bread", ... }},
+  {{ "category": "Pastry", ... }}
+]
+"""
+
+system_prompt_summary = f"""
+คุณคือนักวิเคราะห์เทรนด์เบเกอรี่มืออาชีพในประเทศไทย
+หน้าที่ของคุณคือการอ่านข้อมูล JSON ที่สรุปเทรนด์เบเกอรี่มา แล้วเขียน "บทวิเคราะห์เชิงลึก (Insight)"
+โดยเน้นประเด็นสำคัญ, สินค้าที่กำลังมาแรง, และสิ่งที่น่าจับตามอง
+เขียนให้กระชับ, เข้าใจง่าย, และเหมือนผู้เชี่ยวชาญกำลังสรุปให้ฟัง
+**ตอบเป็น Markdown เท่านั้น**
+"""
+
+# === 4. (RAG) ฟังก์ชัน RAG หลัก (Cache ผลลัพธ์) ===
+# ⭐️ Cache ผลลัพธ์ไว้ 1 ชั่วโมง (3600 วินาที)
+@st.cache_data(ttl=3600)
+def get_bakery_trends(query_topic: str, user_instruction: str, csv_keywords: str, user_keywords: str):
+    """
+    ฟังก์ชันหลักในการค้นหาและสกัดข้อมูล (เวอร์ชัน Synchronous)
+    """
+    print(f"[{datetime.now()}] Running RAG for: '{query_topic}'")
+    
+    # --- (R) Retrieval (Multi-Query) ---
+    queries_to_search = [
+        f"เทรนด์ {query_topic} ในไทย",
+        f"{query_topic} ยอดนิยม คาเฟ่ {query_topic} ไวรัล",
+        f"รีวิว {query_topic} TikTok Lemon8",
+        csv_keywords,
+        f"Hashtag {query_topic} {user_keywords}" # ⭐️ เพิ่ม Keyword จากผู้ใช้
+    ]
+    
+    all_context_str_list = []
+    all_urls_found = set()
+    
+    for q in queries_to_search:
+        print(f"  -> กำลังค้นหา: '{q}'")
+        try:
+            # ใช้ .search (Sync) แทน .async_search
+            search_results = tavily.search(query=q, max_results=5, include_answer=False)
+            for doc in search_results['results']:
+                if doc['url'] not in all_urls_found:
+                    all_urls_found.add(doc['url'])
+                    all_context_str_list.append(f"--- แหล่งที่มา: {doc['url']} ---\n{doc['content']}")
+        except Exception as e:
+            print(f"    -> เกิดข้อผิดพลาดในการค้นหา: {e}")
+            
+    if not all_context_str_list:
+        retrieved_context = "การค้นหาล้มเหลว (ไม่พบข้อมูลใดๆ)"
+    else:
+        retrieved_context = "\n\n".join(all_context_str_list)
+        
+    print(f"ค้นพบข้อมูล (ไม่ซ้ำกัน) ทั้งหมด {len(all_urls_found)} แหล่ง")
+    if not all_urls_found:
+        return [] # คืนค่าว่างถ้าไม่เจออะไรเลย
+
+    # --- (A) Augmentation ---
+    final_prompt = f"{system_prompt_json}\n---**ข้อมูลที่ค้นพบ:**\n{retrieved_context}\n---**คำถามจากผู้ใช้:**\n{user_instruction}\n**คำตอบ (JSON เท่านั้น):**\njson "
+    
+    # --- (G) Generation (Sync) ---
+    print("กำลังส่ง Context + Prompt (Sync) ไปให้ Gemini วิเคราะห์...")
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+        response = model.generate_content(final_prompt)
+        
+        # --- (Python Brain) ---
+        clean_json_str = response.text.strip().replace("
+json", "").replace("
+", "")
+        new_results = json.loads(clean_json_str)
+        print(f"Gemini สกัดข้อมูลมาได้ {len(new_results)} รายการ")
+        
+        # (Sort)
+        sorted_list = sorted(new_results, key=lambda x: x.get('mention_count', 0), reverse=True)
+        return sorted_list
+        
+    except Exception as e:
+        print(f"!!! ข้อผิดพลาด: Gemini ไม่ได้ตอบเป็น JSON ที่ถูกต้อง: {e}")
+        print(f"Raw Output: {response.text}")
+        return []
+
+# === 5. (G) ฟังก์ชันสรุป AI ===
+@st.cache_data(ttl=3600)
+def get_ai_summary(trends_json_string: str):
+    """
+    เรียก AI อีกครั้งเพื่อสรุปผลลัพธ์ JSON
+    """
+    print(f"[{datetime.now()}] Running AI Summary...")
+    if not trends_json_string or trends_json_string == "[]":
+        return "ไม่พบข้อมูลเทรนด์ที่จะสรุป"
+        
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+        prompt = f"{system_prompt_summary}\n---**ข้อมูล JSON สรุปเทรนด์:**\n{trends_json_string}\n---**บทวิเคราะห์เชิงลึก:**\n"
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"!!! ข้อผิดพลาดในการสรุป AI: {e}")
+        return f"เกิดข้อผิดพลาดในการสรุปผล: {e}"
+
+# === 6. Helper Functions (สำหรับ UI) ===
+
+def get_platform_icon(url: str):
+    """
+    คืนค่าเป็น Emoji Icon จาก URL
+    """
+    url_lower = str(url).lower()
+    if "tiktok.com" in url_lower: return "🎵"
+    if "instagram.com" in url_lower: return "📸"
+    if "lemon8" in url_lower: return "🍋"
+    if "wongnai.com" in url_lower: return "W"
+    if "facebook.com" in url_lower: return "👍"
+    if "youtube.com" in url_lower: return "📺"
+    if "x.com" in url_lower or "twitter.com" in url_lower: return "X"
+    return "🌐"
+
+def calculate_rank_changes(current_trends: list, previous_trends: list):
+    """
+    คำนวณการเปลี่ยนแปลงอันดับและคืนค่า List ใหม่พร้อมข้อมูล
+    """
+    # สร้าง dict เพื่อ lookup อันดับเก่าได้ง่ายๆ
+    # { "ขนมปังโชกุปัง": 1, "ครัวซองต์": 2 }
+    prev_rank_map = {item.get('product_name'): i + 1 
+                     for i, item in enumerate(previous_trends)}
+    
+    processed_list = []
+    
+    for i, item in enumerate(current_trends):
+        current_rank = i + 1
+        product_name = item.get('product_name')
+        
+        prev_rank = prev_rank_map.get(product_name)
+        
+        change_str = "🆕" # New
+        change_val = 0
+        color = "gray"
+        
+        if prev_rank:
+            change = prev_rank - current_rank # (อันดับเก่า - อันดับใหม่)
+            if change > 0:
+                change_str = f"🔼 +{change}"
+                change_val = change
+                color = "green"
+            elif change < 0:
+                change_str = f"🔽 {change}"
+                change_val = change
+                color = "red"
+            else:
+                change_str = "➖"
+                change_val = 0
+                color = "gray"
+        
+        # เพิ่มข้อมูลใหม่เข้าไปใน item
+        item['rank'] = current_rank
+        item['rank_change_str'] = change_str
+        item['rank_change_val'] = change_val
+        item['rank_change_color'] = color
+        processed_list.append(item)
+        
+    return processed_list
