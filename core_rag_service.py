@@ -281,24 +281,27 @@ def get_ai_summary(trends_json_string: str):
 def get_platform_icon(platform: str):
     """
     คืนค่าเป็น Emoji Icon จาก Platform Name หรือ URL
+    เน้นแพลตฟอร์มหลัก: TikTok, Instagram, Facebook, Lemon8
     """
     platform_lower = str(platform).lower()
     
-    # ตรวจสอบ platform names ก่อน
+    # ตรวจสอบ platform names ก่อน (แพลตฟอร์มหลัก)
     if "tiktok" in platform_lower: return "🎵"
     if "instagram" in platform_lower: return "📸"
     if "facebook" in platform_lower: return "👍"
+    if "lemon8" in platform_lower: return "🍋"
+    
+    # แพลตฟอร์มรอง
     if "twitter" in platform_lower or "x" in platform_lower: return "X"
     if "youtube" in platform_lower: return "📺"
-    if "lemon8" in platform_lower: return "🍋"
     if "wongnai" in platform_lower: return "W"
     
     # ถ้าเป็น URL ให้ตรวจสอบตามเดิม
     if "tiktok.com" in platform_lower: return "🎵"
     if "instagram.com" in platform_lower: return "📸"
     if "lemon8" in platform_lower: return "🍋"
-    if "wongnai.com" in platform_lower: return "W"
     if "facebook.com" in platform_lower: return "👍"
+    if "wongnai.com" in platform_lower: return "W"
     if "youtube.com" in platform_lower: return "📺"
     if "x.com" in platform_lower or "twitter.com" in platform_lower: return "X"
     

@@ -16,8 +16,8 @@ if 'run_history' not in st.session_state or not st.session_state['run_history']:
     st.info("""
     **วิธีแก้ไข:**
     
-    **วิธีที่ 1: ใช้ Test RAG Model (แนะนำ)**
-    1. ไปที่หน้า **Test RAG Model** 
+    **วิธีที่ 1: ใช้ Overview (แนะนำ)**
+    1. ไปที่หน้า **Overview** (หน้าแรก)
     2. กดปุ่ม **"🚀 Run RAG Test"**
     3. รอให้ระบบวิเคราะห์เสร็จ
     4. ข้อมูลจะถูกเก็บในประวัติอัตโนมัติ
@@ -29,9 +29,9 @@ if 'run_history' not in st.session_state or not st.session_state['run_history']:
     4. ข้อมูลจะถูกเก็บในประวัติอัตโนมัติ
     """)
     
-    # เพิ่มปุ่มไปหน้า Test RAG Model
-    if st.button("🧪 ไปหน้า Test RAG Model", type="secondary"):
-        st.switch_page("test_rag_model.py")
+    # เพิ่มปุ่มไปหน้า Overview
+    if st.button("🏠 ไปหน้า Overview", type="secondary"):
+        st.switch_page("1_Overview.py")
     
     st.stop()
 

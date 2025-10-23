@@ -14,8 +14,8 @@ if 'current_trends' not in st.session_state or not st.session_state['current_tre
     st.info("""
     **วิธีแก้ไข:**
     
-    **วิธีที่ 1: ใช้ Test RAG Model (แนะนำ)**
-    1. ไปที่หน้า **Test RAG Model** 
+    **วิธีที่ 1: ใช้ Overview (แนะนำ)**
+    1. ไปที่หน้า **Overview** (หน้าแรก)
     2. กดปุ่ม **"🚀 Run RAG Test"**
     3. รอให้ระบบวิเคราะห์เสร็จ
     4. กดปุ่ม **"🚀 ไปหน้า Insight"** ที่จะปรากฏขึ้น
@@ -27,9 +27,9 @@ if 'current_trends' not in st.session_state or not st.session_state['current_tre
     4. จากนั้นกลับมาหน้านี้
     """)
     
-    # เพิ่มปุ่มไปหน้า Test RAG Model
-    if st.button("🧪 ไปหน้า Test RAG Model", type="secondary"):
-        st.switch_page("test_rag_model.py")
+    # เพิ่มปุ่มไปหน้า Overview
+    if st.button("🏠 ไปหน้า Overview", type="secondary"):
+        st.switch_page("1_Overview.py")
     
     st.stop()
 
@@ -95,11 +95,13 @@ processed_df = pd.DataFrame(processed_results)
 
 # --- สีหลัก ---
 colors_map = {
-    'Instagram': '#8fb6ff',
-    'TikTok': '#b7ffd8',
-    'Facebook': '#ffe08a',
-    'Twitter': '#ffb385',
-    'Other': '#d7d7d7'
+    'TikTok': '#ff0050',      # สีแดง TikTok
+    'Instagram': '#E4405F',    # สีชมพู Instagram
+    'Facebook': '#1877F2',     # สีน้ำเงิน Facebook
+    'Lemon8': '#FFD700',       # สีทอง Lemon8
+    'Twitter': '#1DA1F2',      # สีฟ้า Twitter
+    'YouTube': '#FF0000',      # สีแดง YouTube
+    'Other': '#d7d7d7'         # สีเทา Other
 }
 
 # === 1. ตารางเทรนด์ยอดฮิต ===
@@ -202,7 +204,7 @@ with col1:
             labels=platform_counts.index,
             values=platform_counts.values,
             hole=0.4,  # ทำให้เป็น Donut
-            marker=dict(colors=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57']),
+                     marker=dict(colors=[colors_map.get(c, '#d7d7d7') for c in platform_counts.index]),
             pull=[0.05 if i == 0 else 0 for i in range(len(platform_counts))]  # ดึงชิ้นใหญ่สุด
         )])
         

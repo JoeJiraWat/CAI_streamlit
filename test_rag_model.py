@@ -377,13 +377,21 @@ st.divider()
 if 'previous_trends' not in st.session_state:
     st.session_state['previous_trends'] = []
 
-query = st.text_input("หัวข้อที่สนใจ (Topic)", "เบเกอรี่")
+# จำค่าเดิมไว้
+if 'saved_query' not in st.session_state:
+    st.session_state['saved_query'] = "เบเกอรี่"
+if 'saved_custom_prompt' not in st.session_state:
+    st.session_state['saved_custom_prompt'] = "เทรนด์ 10 อันดับแรกในไทย"
+if 'saved_use_custom_prompt' not in st.session_state:
+    st.session_state['saved_use_custom_prompt'] = True
+
+query = st.text_input("หัวข้อที่สนใจ (Topic)", value=st.session_state['saved_query'])
 
 # เพิ่มช่องสำหรับ custom prompt
 st.subheader("✏️ Custom Prompt")
 custom_prompt = st.text_area(
     "คำสั่งพิเศษ (Custom Instruction)", 
-    value="เทรนด์ 10 อันดับแรกในไทย",
+    value=st.session_state['saved_custom_prompt'],
     help="คุณสามารถเขียนคำสั่งพิเศษได้ เช่น 'เทรนด์ 5 อันดับแรก', 'เทรนด์ที่กำลังมาแรง', 'เทรนด์สุขภาพ' เป็นต้น",
     height=100
 )
@@ -408,9 +416,14 @@ with st.expander("💡 ตัวอย่าง Prompt ที่แนะนำ"
     """)
 
 # เพิ่มตัวเลือกสำหรับใช้ custom prompt หรือไม่
-use_custom_prompt = st.checkbox("ใช้ Custom Prompt", value=True, help="ถ้าไม่เลือกจะใช้คำสั่งเริ่มต้น")
+use_custom_prompt = st.checkbox("ใช้ Custom Prompt", value=st.session_state['saved_use_custom_prompt'], help="ถ้าไม่เลือกจะใช้คำสั่งเริ่มต้น")
 
 if st.button("🚀 Run RAG Test", type="primary"):
+    # เก็บค่าใหม่ใน session state
+    st.session_state['saved_query'] = query
+    st.session_state['saved_custom_prompt'] = custom_prompt
+    st.session_state['saved_use_custom_prompt'] = use_custom_prompt
+    
     if not CSV_LOADED or not tavily or not genai_configured:
         st.error("ไม่สามารถรันได้: กรุณาตรวจสอบข้อผิดพลาดด้านบน (API Keys หรือ CSV)")
     else:
@@ -604,3 +617,23 @@ if st.button("🚀 Run RAG Test", type="primary"):
             
             if st.button("🚀 ไปหน้า Insight", type="primary"):
                 st.switch_page("pages/2_Insight.py")
+            
+            st.divider()
+            
+            if st.button("🗑️ Reset All Data", type="secondary"):
+                # รีเซ็ตข้อมูลทั้งหมด
+                if 'current_trends' in st.session_state:
+                    del st.session_state['current_trends']
+                if 'previous_trends' in st.session_state:
+                    del st.session_state['previous_trends']
+                if 'run_history' in st.session_state:
+                    del st.session_state['run_history']
+                if 'saved_query' in st.session_state:
+                    del st.session_state['saved_query']
+                if 'saved_custom_prompt' in st.session_state:
+                    del st.session_state['saved_custom_prompt']
+                if 'saved_use_custom_prompt' in st.session_state:
+                    del st.session_state['saved_use_custom_prompt']
+                
+                st.success("ข้อมูลทั้งหมดถูกรีเซ็ตเรียบร้อยแล้ว!")
+                st.rerun()
