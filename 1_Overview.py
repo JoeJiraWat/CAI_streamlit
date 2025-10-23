@@ -22,12 +22,6 @@ st.info("""
 4. กดปุ่ม "🚀 Run RAG Test" เพื่อทดสอบ
 """)
 
-# แสดงโค้ดที่ต้องแก้ไข
-st.code("""
-# เปลี่ยนบรรทัดนี้ในโค้ด:
-GOOGLE_API_KEY = "your_google_api_key_here"  # เปลี่ยนเป็น API key จริง
-TAVILY_API_KEY = "your_tavily_api_key_here"  # เปลี่ยนเป็น API key จริง
-""", language="python")
 
 # ใส่ API Keys ตรงๆ ที่นี่
 GOOGLE_API_KEY = "AIzaSyAAv6i0xeWv_1J8hJ3UxeSU1bIqHE94qfA"  # เปลี่ยนเป็น API key จริงของคุณ
