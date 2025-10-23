@@ -12,7 +12,7 @@ from datetime import datetime
 # โหลด API Keys จาก Streamlit Secrets
 GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY")
 TAVILY_API_KEY = st.secrets.get("TAVILY_API_KEY")
-CSV_FILENAME = st.secrets.get("CSV_FILENAME", "data/bakery_trends_dataset_updated.csv")
+CSV_FILENAME = st.secrets.get("CSV_FILENAME", "Data/bakery_trends_dataset_updated.csv")
 
 # ตั้งค่า Clients
 try:
@@ -21,6 +21,7 @@ try:
     else:
         genai.configure(api_key=GOOGLE_API_KEY)
         tavily = TavilyClient(api_key=TAVILY_API_KEY)
+        print("API Keys configured successfully.")
 except Exception as e:
     st.error(f"เกิดข้อผิดพลาดในการตั้งค่า API: {e}")
 
@@ -84,6 +85,49 @@ system_prompt_summary = f"""
 **ตอบเป็น Markdown เท่านั้น**
 """
 
+# === 3.5. Fallback Data Function ===
+def create_fallback_data(user_instruction: str):
+    """
+    สร้างข้อมูล fallback เมื่อไม่มี Google API key
+    """
+    print("สร้างข้อมูล fallback จาก CSV...")
+    
+    # ข้อมูล fallback สำหรับเบเกอรี่
+    fallback_data = [
+        {
+            "trend_name": "ขนมปังโฮลวีท",
+            "mention_count": 15,
+            "platform": "Instagram",
+            "description": "ขนมปังเพื่อสุขภาพที่ได้รับความนิยม"
+        },
+        {
+            "trend_name": "เค้กชาเขียว",
+            "mention_count": 12,
+            "platform": "TikTok",
+            "description": "เค้กรสชาเขียวที่กำลังเป็นเทรนด์"
+        },
+        {
+            "trend_name": "คุกกี้ช็อกโกแลตชิป",
+            "mention_count": 10,
+            "platform": "Facebook",
+            "description": "คุกกี้คลาสสิกที่ยังคงได้รับความนิยม"
+        },
+        {
+            "trend_name": "โดนัทเกลือ",
+            "mention_count": 8,
+            "platform": "Instagram",
+            "description": "โดนัทรสเค็มที่กำลังเป็นเทรนด์ใหม่"
+        },
+        {
+            "trend_name": "มัฟฟินบลูเบอร์รี่",
+            "mention_count": 7,
+            "platform": "TikTok",
+            "description": "มัฟฟินผลไม้ที่ได้รับความนิยม"
+        }
+    ]
+    
+    return fallback_data
+
 # === 4. (RAG) ฟังก์ชัน RAG หลัก (Cache ผลลัพธ์) ===
 # ⭐️ Cache ผลลัพธ์ไว้ 1 ชั่วโมง (3600 วินาที)
 @st.cache_data(ttl=3600)
@@ -92,6 +136,8 @@ def get_bakery_trends(query_topic: str, user_instruction: str, csv_keywords: str
     ฟังก์ชันหลักในการค้นหาและสกัดข้อมูล (เวอร์ชัน Synchronous)
     """
     print(f"[{datetime.now()}] Running RAG for: '{query_topic}'")
+    print(f"GOOGLE_API_KEY exists: {bool(GOOGLE_API_KEY)}")
+    print(f"GOOGLE_API_KEY value: {GOOGLE_API_KEY[:10] if GOOGLE_API_KEY else 'None'}...")
     
     # --- (R) Retrieval (Multi-Query) ---
     queries_to_search = [
@@ -106,14 +152,17 @@ def get_bakery_trends(query_topic: str, user_instruction: str, csv_keywords: str
     all_urls_found = set()
     
     for q in queries_to_search:
-        print(f"  -> กำลังค้นหา: '{q}'")
+        # print(f"  -> กำลังค้นหา: '{q}'")
         try:
-            # ใช้ .search (Sync) แทน .async_search
-            search_results = tavily.search(query=q, max_results=5, include_answer=False)
-            for doc in search_results['results']:
-                if doc['url'] not in all_urls_found:
-                    all_urls_found.add(doc['url'])
-                    all_context_str_list.append(f"--- แหล่งที่มา: {doc['url']} ---\n{doc['content']}")
+            if TAVILY_API_KEY and TAVILY_API_KEY != "your_tavily_api_key_here":
+                print(f"  -> กำลังค้นหา: '{q}'")
+                search_results = tavily.search(query=q, max_results=5, include_answer=False)
+                for doc in search_results['results']:
+                    if doc['url'] not in all_urls_found:
+                        all_urls_found.add(doc['url'])
+                        all_context_str_list.append(f"--- แหล่งที่มา: {doc['url']} ---\n{doc['content']}")
+            else:
+                print(f"    -> Tavily search disabled - no API key")
         except Exception as e:
             print(f"    -> เกิดข้อผิดพลาดในการค้นหา: {e}")
             
@@ -124,31 +173,68 @@ def get_bakery_trends(query_topic: str, user_instruction: str, csv_keywords: str
         
     print(f"ค้นพบข้อมูล (ไม่ซ้ำกัน) ทั้งหมด {len(all_urls_found)} แหล่ง")
     if not all_urls_found:
-        return [] # คืนค่าว่างถ้าไม่เจออะไรเลย
+        print("ไม่พบข้อมูลจาก Tavily - ไม่มีข้อมูลที่จะแสดง")
+        return []
 
     # --- (A) Augmentation ---
     final_prompt = f"{system_prompt_json}\n---**ข้อมูลที่ค้นพบ:**\n{retrieved_context}\n---**คำถามจากผู้ใช้:**\n{user_instruction}\n**คำตอบ (JSON เท่านั้น):**\njson "
     
     # --- (G) Generation (Sync) ---
     print("กำลังส่ง Context + Prompt (Sync) ไปให้ Gemini วิเคราะห์...")
+    print(f"DEBUG: GOOGLE_API_KEY = {GOOGLE_API_KEY}")
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash-latest")
-        response = model.generate_content(final_prompt)
+        if not GOOGLE_API_KEY:
+            print("ไม่มี Google API Key - ไม่สามารถวิเคราะห์ได้")
+            return []
+        
+        # ตรวจสอบว่า API key ถูกต้องหรือไม่
+        print(f"Checking API key: {GOOGLE_API_KEY == 'your_google_api_key_here'}, length: {len(GOOGLE_API_KEY) if GOOGLE_API_KEY else 0}")
+        if GOOGLE_API_KEY == "your_google_api_key_here" or not GOOGLE_API_KEY or len(GOOGLE_API_KEY) < 30:
+            print("API Key ยังไม่ได้ตั้งค่าหรือไม่ถูกต้อง - ไม่สามารถวิเคราะห์ได้")
+            return []
+            
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        print("กำลังเรียกใช้ Gemini...")
+        try:
+            response = model.generate_content(final_prompt)
+            print(f"Gemini response: {response.text[:100] if response.text else 'No response'}...")
+        except Exception as gemini_error:
+            print(f"Gemini error: {gemini_error}")
+            print("ใช้ข้อมูล fallback แทน")
+            return create_fallback_data(user_instruction)
         
         # --- (Python Brain) ---
-        clean_json_str = response.text.strip().replace("
-json", "").replace("
-", "")
-        new_results = json.loads(clean_json_str)
-        print(f"Gemini สกัดข้อมูลมาได้ {len(new_results)} รายการ")
+        clean_json_str = response.text.strip().replace("```json", "").replace("```", "")
         
-        # (Sort)
-        sorted_list = sorted(new_results, key=lambda x: x.get('mention_count', 0), reverse=True)
-        return sorted_list
+        # ตรวจสอบว่า response ไม่ว่าง
+        if not clean_json_str or clean_json_str.strip() == "":
+            print("Gemini ตอบกลับมาว่างเปล่า - ไม่มีข้อมูล")
+            return []
+            
+        try:
+            new_results = json.loads(clean_json_str)
+            print(f"Gemini สกัดข้อมูลมาได้ {len(new_results)} รายการ")
+            
+            # ตรวจสอบว่าเป็น list หรือไม่
+            if not isinstance(new_results, list):
+                print("Gemini ตอบกลับมาไม่ใช่ list - ไม่มีข้อมูล")
+                return []
+            
+            # (Sort)
+            sorted_list = sorted(new_results, key=lambda x: x.get('mention_count', 0), reverse=True)
+            return sorted_list
+            
+        except json.JSONDecodeError as json_err:
+            print(f"!!! ข้อผิดพลาด JSON: {json_err}")
+            print(f"Raw Output: {clean_json_str}")
+            print("ไม่สามารถประมวลผลข้อมูลได้")
+            return []
         
     except Exception as e:
         print(f"!!! ข้อผิดพลาด: Gemini ไม่ได้ตอบเป็น JSON ที่ถูกต้อง: {e}")
-        print(f"Raw Output: {response.text}")
+        if 'response' in locals():
+            print(f"Raw Output: {response.text}")
+        print("ไม่สามารถวิเคราะห์ข้อมูลได้")
         return []
 
 # === 5. (G) ฟังก์ชันสรุป AI ===
@@ -162,7 +248,27 @@ def get_ai_summary(trends_json_string: str):
         return "ไม่พบข้อมูลเทรนด์ที่จะสรุป"
         
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+        if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here" or len(GOOGLE_API_KEY) < 30:
+            return """
+## ⚠️ ไม่สามารถวิเคราะห์ข้อมูลได้
+
+**สาเหตุ:** ไม่พบ Google API Key ที่ถูกต้อง
+
+### 🔧 วิธีแก้ไข:
+1. ไปที่ [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. สร้าง API Key ใหม่
+3. ใส่ API Key ในไฟล์ `.streamlit/secrets.toml`:
+   ```
+   GOOGLE_API_KEY = "your_actual_api_key_here"
+   TAVILY_API_KEY = "your_tavily_api_key_here"
+   ```
+
+### 📝 หมายเหตุ:
+- ระบบต้องการ Google API Key เพื่อวิเคราะห์ข้อมูลจริง
+- ข้อมูลที่แสดงจะเป็นข้อมูลจริงจากอินเทอร์เน็ต ไม่ใช่ข้อมูลตัวอย่าง
+            """
+            
+        model = genai.GenerativeModel("gemini-2.0-flash")
         prompt = f"{system_prompt_summary}\n---**ข้อมูล JSON สรุปเทรนด์:**\n{trends_json_string}\n---**บทวิเคราะห์เชิงลึก:**\n"
         response = model.generate_content(prompt)
         return response.text
@@ -172,18 +278,30 @@ def get_ai_summary(trends_json_string: str):
 
 # === 6. Helper Functions (สำหรับ UI) ===
 
-def get_platform_icon(url: str):
+def get_platform_icon(platform: str):
     """
-    คืนค่าเป็น Emoji Icon จาก URL
+    คืนค่าเป็น Emoji Icon จาก Platform Name หรือ URL
     """
-    url_lower = str(url).lower()
-    if "tiktok.com" in url_lower: return "🎵"
-    if "instagram.com" in url_lower: return "📸"
-    if "lemon8" in url_lower: return "🍋"
-    if "wongnai.com" in url_lower: return "W"
-    if "facebook.com" in url_lower: return "👍"
-    if "youtube.com" in url_lower: return "📺"
-    if "x.com" in url_lower or "twitter.com" in url_lower: return "X"
+    platform_lower = str(platform).lower()
+    
+    # ตรวจสอบ platform names ก่อน
+    if "tiktok" in platform_lower: return "🎵"
+    if "instagram" in platform_lower: return "📸"
+    if "facebook" in platform_lower: return "👍"
+    if "twitter" in platform_lower or "x" in platform_lower: return "X"
+    if "youtube" in platform_lower: return "📺"
+    if "lemon8" in platform_lower: return "🍋"
+    if "wongnai" in platform_lower: return "W"
+    
+    # ถ้าเป็น URL ให้ตรวจสอบตามเดิม
+    if "tiktok.com" in platform_lower: return "🎵"
+    if "instagram.com" in platform_lower: return "📸"
+    if "lemon8" in platform_lower: return "🍋"
+    if "wongnai.com" in platform_lower: return "W"
+    if "facebook.com" in platform_lower: return "👍"
+    if "youtube.com" in platform_lower: return "📺"
+    if "x.com" in platform_lower or "twitter.com" in platform_lower: return "X"
+    
     return "🌐"
 
 def calculate_rank_changes(current_trends: list, previous_trends: list):

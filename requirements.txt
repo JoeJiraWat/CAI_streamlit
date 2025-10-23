@@ -4,3 +4,4 @@ tavily-client
 pandas
 plotly                  # ใช้สำหรับทำกราฟ Donut
 python-dotenv           # (เผื่อไว้ใช้ตอนทดสอบ)
+tavily-python

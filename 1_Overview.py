@@ -1,4 +1,12 @@
 import streamlit as st
+
+# === ตั้งค่าหน้าจอ (ต้องเป็นคำสั่งแรก) ===
+st.set_page_config(
+    page_title="Bakery Trends Overview",
+    page_icon="🥐",
+    layout="wide"
+)
+
 import pandas as pd
 import plotly.graph_objects as go
 import json
@@ -11,13 +19,6 @@ from core_rag_service import (
     get_ai_summary, 
     get_platform_icon,
     calculate_rank_changes
-)
-
-# === ตั้งค่าหน้าจอ (ต้องเป็นคำสั่งแรก) ===
-st.set_page_config(
-    page_title="Bakery Trends Overview",
-    page_icon="🥐",
-    layout="wide"
 )
 
 # === 1. โหลดข้อมูลพื้นฐาน (CSV) ===
@@ -103,36 +104,36 @@ if not st.session_state['current_trends']:
 col1, col2 = st.columns([1, 2], gap="large")
 
 with col1:
-    st.subheader("สัดส่วนหมวดหมู่ (Category %)")
+    st.subheader("สัดส่วนแพลตฟอร์ม (Platform %)")
     
     # 1. เตรียมข้อมูลสำหรับกราฟ
     df = pd.DataFrame(st.session_state['current_trends'])
-    if not df.empty and 'category' in df.columns:
-        category_counts = df['category'].value_counts()
+    if not df.empty and 'platform' in df.columns:
+        platform_counts = df['platform'].value_counts()
         
         # สีตามที่กำหนด
         colors_map = {
-            'Bread': '#8fb6ff',
-            'Cake': '#b7ffd8',
-            'Cookie': '#ffe08a',
-            'Pastry': '#ffb385',
+            'Instagram': '#8fb6ff',
+            'TikTok': '#b7ffd8',
+            'Facebook': '#ffe08a',
+            'Twitter': '#ffb385',
             'Other': '#d7d7d7'
         }
         
         fig = go.Figure(data=[go.Pie(
-            labels=category_counts.index, 
-            values=category_counts.values,
+            labels=platform_counts.index, 
+            values=platform_counts.values,
             hole=.4, # ทำให้เป็น Donut
-            marker=dict(colors=[colors_map.get(c, '#d7d7d7') for c in category_counts.index]),
-            pull=[0.05 if i == 0 else 0 for i in range(len(category_counts))] # ดึงชิ้นใหญ่สุด
+            marker=dict(colors=[colors_map.get(c, '#d7d7d7') for c in platform_counts.index]),
+            pull=[0.05 if i == 0 else 0 for i in range(len(platform_counts))] # ดึงชิ้นใหญ่สุด
         )])
         fig.update_layout(
             margin=dict(t=0, b=0, l=0, r=0),
-            legend_title_text='Categories'
+            legend_title_text='Platforms'
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.caption("ไม่พบข้อมูลหมวดหมู่")
+        st.caption("ไม่พบข้อมูลแพลตฟอร์ม")
 
 with col2:
     st.subheader("🧠 AI วิเคราะห์เชิงลึก")
@@ -172,7 +173,7 @@ for item in processed_trends[:10]:
     cols[1].markdown(f":{color}[**{change_str}**]")
     
     # ชื่อสินค้า
-    cols[2].markdown(f"**{item.get('product_name', 'N/A')}**\n\n*ไส้/รส: {item.get('filling_flavor', '[ไม่ระบุ]') }*")
+    cols[2].markdown(f"**{item.get('trend_name', 'N/A')}**\n\n*{item.get('description', '[ไม่ระบุ]')}*")
     
     # Hashtag
     cols[3].caption(f"{item.get('hashtag', '[ไม่พบข้อมูล]')}")
@@ -181,8 +182,8 @@ for item in processed_trends[:10]:
     cols[4].metric("Mentions", item.get('mention_count', 0))
 
     # แหล่งที่มา
-    url = item.get('source_url', '#')
-    icon = get_platform_icon(url)
-    cols[5].markdown(f"[{icon}]({url})", help=url) # Icon ที่คลิกได้
+    platform = item.get('platform', 'Unknown')
+    icon = get_platform_icon(platform)
+    cols[5].markdown(f"{icon} {platform}")
     
     st.divider()
