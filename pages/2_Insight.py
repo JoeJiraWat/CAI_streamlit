@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Bakery Trends Insight", page_icon="📈", layout="wide")
 st.title("📈 วิเคราะห์เทรนด์เชิงลึก (Insight)")
@@ -36,6 +37,52 @@ if 'current_trends' not in st.session_state or not st.session_state['current_tre
 # --- โหลดข้อมูลจาก Session State ---
 data = st.session_state['current_trends']
 df = pd.DataFrame(data)
+
+# === ฟังก์ชันสำหรับสร้างข้อมูลการพูดถึงในแต่ละวัน ===
+def create_daily_mentions_chart(trends_data):
+    """
+    สร้างกราฟแสดงการพูดถึงในแต่ละวัน
+    """
+    all_daily_data = []
+    
+    for trend in trends_data:
+        trend_name = trend.get('trend_name', 'Unknown')
+        daily_mentions = trend.get('daily_mentions', [])
+        
+        for day_data in daily_mentions:
+            all_daily_data.append({
+                'trend_name': trend_name,
+                'date': day_data['date'],
+                'date_display': day_data['date_display'],
+                'mentions': day_data['mentions'],
+                'platform': trend.get('platform', 'Unknown'),
+                'category': trend.get('category', 'Unknown')
+            })
+    
+    return pd.DataFrame(all_daily_data)
+
+def get_trends_by_date(trends_data, target_date):
+    """
+    ดึงเทรนด์ที่ถูกพูดถึงในวันที่กำหนด
+    """
+    trends_for_date = []
+    
+    for trend in trends_data:
+        daily_mentions = trend.get('daily_mentions', [])
+        for day_data in daily_mentions:
+            if day_data['date'] == target_date:
+                trends_for_date.append({
+                    'trend_name': trend.get('trend_name', 'Unknown'),
+                    'mentions': day_data['mentions'],
+                    'platform': trend.get('platform', 'Unknown'),
+                    'category': trend.get('category', 'Unknown'),
+                    'description': trend.get('description', ''),
+                    'source_url': trend.get('source_url', 'Unknown')
+                })
+    
+    # เรียงตามจำนวนการพูดถึง
+    trends_for_date.sort(key=lambda x: x['mentions'], reverse=True)
+    return trends_for_date
 
 # === ฟังก์ชันสำหรับคำนวณการเปลี่ยนแปลงอันดับ ===
 def calculate_rank_changes(current_trends, previous_trends=None):
@@ -154,7 +201,97 @@ for i, row in processed_df.iterrows():
         
         st.divider()
 
-# === 2. กราฟรวม 10 อันดับแรก ===
+# === 2. การพูดถึงในแต่ละวัน ===
+st.subheader("📅 การพูดถึงในแต่ละวัน")
+
+# สร้างข้อมูลการพูดถึงในแต่ละวัน
+daily_df = create_daily_mentions_chart(data)
+
+if not daily_df.empty:
+    # เลือกวันที่
+    available_dates = sorted(daily_df['date'].unique(), reverse=True)
+    selected_date = st.selectbox(
+        "เลือกวันที่ที่ต้องการดูเทรนด์:",
+        available_dates,
+        format_func=lambda x: f"{x} ({datetime.strptime(x, '%Y-%m-%d').strftime('%d/%m/%Y')})"
+    )
+    
+    # แสดงเทรนด์ในวันที่เลือก
+    trends_for_date = get_trends_by_date(data, selected_date)
+    
+    if trends_for_date:
+        st.write(f"**เทรนด์ที่ถูกพูดถึงในวันที่ {datetime.strptime(selected_date, '%Y-%m-%d').strftime('%d/%m/%Y')}:**")
+        
+        # แสดงตารางเทรนด์ในวันนั้น
+        for i, trend in enumerate(trends_for_date, 1):
+            with st.container():
+                col1, col2, col3, col4, col5 = st.columns([1, 2, 2, 1, 1])
+                
+                col1.metric("อันดับ", i)
+                col2.markdown(f"**{trend['trend_name']}**")
+                col2.caption(trend['description'])
+                
+                category_emoji = {
+                    'Bread': '🍞', 'Cake': '🎂', 'Cookie': '🍪', 'Pastry': '🥐',
+                    'Donut': '🍩', 'Muffin': '🧁', 'Bagel': '🥯', 'Croissant': '🥐',
+                    'Unknown': '❓'
+                }.get(trend['category'], '❓')
+                
+                col3.markdown(f"{category_emoji} **{trend['category']}**")
+                col4.metric("พูดถึง", trend['mentions'])
+                col5.markdown(f"📱 {trend['platform']}")
+                
+                if trend.get('source_url') and trend['source_url'] != "Unknown":
+                    st.markdown(f"🔗 [ดูแหล่งข้อมูล]({trend['source_url']})")
+                
+                st.divider()
+    else:
+        st.info("ไม่พบเทรนด์ในวันที่เลือก")
+    
+    # กราฟแสดงการพูดถึงในแต่ละวัน
+    st.subheader("📊 กราฟการพูดถึงในแต่ละวัน")
+    
+    # สร้างกราฟเส้นแสดงการพูดถึงของแต่ละเทรนด์
+    fig_line = px.line(
+        daily_df, 
+        x='date_display', 
+        y='mentions', 
+        color='trend_name',
+        title="การพูดถึงของแต่ละเทรนด์ในแต่ละวัน",
+        labels={'date_display': 'วันที่', 'mentions': 'จำนวนการพูดถึง', 'trend_name': 'ชื่อเทรนด์'}
+    )
+    fig_line.update_layout(
+        xaxis_title="วันที่",
+        yaxis_title="จำนวนการพูดถึง",
+        legend_title="ชื่อเทรนด์",
+        height=500
+    )
+    st.plotly_chart(fig_line, use_container_width=True)
+    
+    # กราฟแท่งแสดงการพูดถึงรวมในแต่ละวัน
+    daily_totals = daily_df.groupby('date_display')['mentions'].sum().reset_index()
+    daily_totals = daily_totals.sort_values('date_display')
+    
+    fig_bar = px.bar(
+        daily_totals,
+        x='date_display',
+        y='mentions',
+        title="การพูดถึงรวมในแต่ละวัน",
+        labels={'date_display': 'วันที่', 'mentions': 'จำนวนการพูดถึงรวม'},
+        color='mentions',
+        color_continuous_scale='Viridis'
+    )
+    fig_bar.update_layout(
+        xaxis_title="วันที่",
+        yaxis_title="จำนวนการพูดถึงรวม",
+        height=400
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+else:
+    st.info("ไม่พบข้อมูลการพูดถึงในแต่ละวัน")
+
+# === 3. กราฟรวม 10 อันดับแรก ===
 st.subheader("📊 Top 10 Trends (All Categories)")
 top_10_df = processed_df.head(10).sort_values(by="mention_count", ascending=False)
 

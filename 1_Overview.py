@@ -533,6 +533,125 @@ if st.button("🚀 Run RAG Test", type="primary"):
                     
                     st.divider()
             
+            # === แสดงข้อมูลการพูดถึงในแต่ละวัน ===
+            st.subheader("📅 การพูดถึงในแต่ละวัน")
+            
+            # สร้างข้อมูลการพูดถึงในแต่ละวัน
+            daily_data = []
+            for trend in results:
+                trend_name = trend.get('trend_name', 'Unknown')
+                daily_mentions = trend.get('daily_mentions', [])
+                
+                for day_data in daily_mentions:
+                    daily_data.append({
+                        'trend_name': trend_name,
+                        'date': day_data['date'],
+                        'date_display': day_data['date_display'],
+                        'mentions': day_data['mentions'],
+                        'platform': trend.get('platform', 'Unknown'),
+                        'category': trend.get('category', 'Unknown')
+                    })
+            
+            if daily_data:
+                daily_df = pd.DataFrame(daily_data)
+                
+                # เลือกวันที่
+                available_dates = sorted(daily_df['date'].unique(), reverse=True)
+                selected_date = st.selectbox(
+                    "เลือกวันที่ที่ต้องการดูเทรนด์:",
+                    available_dates,
+                    format_func=lambda x: f"{x} ({datetime.strptime(x, '%Y-%m-%d').strftime('%d/%m/%Y')})"
+                )
+                
+                # แสดงเทรนด์ในวันที่เลือก
+                trends_for_date = []
+                for trend in results:
+                    daily_mentions = trend.get('daily_mentions', [])
+                    for day_data in daily_mentions:
+                        if day_data['date'] == selected_date:
+                            trends_for_date.append({
+                                'trend_name': trend.get('trend_name', 'Unknown'),
+                                'mentions': day_data['mentions'],
+                                'platform': trend.get('platform', 'Unknown'),
+                                'category': trend.get('category', 'Unknown'),
+                                'description': trend.get('description', ''),
+                                'source_url': trend.get('source_url', 'Unknown')
+                            })
+                
+                # เรียงตามจำนวนการพูดถึง
+                trends_for_date.sort(key=lambda x: x['mentions'], reverse=True)
+                
+                if trends_for_date:
+                    st.write(f"**เทรนด์ที่ถูกพูดถึงในวันที่ {datetime.strptime(selected_date, '%Y-%m-%d').strftime('%d/%m/%Y')}:**")
+                    
+                    # แสดงตารางเทรนด์ในวันนั้น
+                    for i, trend in enumerate(trends_for_date, 1):
+                        with st.container():
+                            col1, col2, col3, col4, col5 = st.columns([1, 2, 2, 1, 1])
+                            
+                            col1.metric("อันดับ", i)
+                            col2.markdown(f"**{trend['trend_name']}**")
+                            col2.caption(trend['description'])
+                            
+                            category_emoji = {
+                                'Bread': '🍞', 'Cake': '🎂', 'Cookie': '🍪', 'Pastry': '🥐',
+                                'Donut': '🍩', 'Muffin': '🧁', 'Bagel': '🥯', 'Croissant': '🥐',
+                                'Unknown': '❓'
+                            }.get(trend['category'], '❓')
+                            
+                            col3.markdown(f"{category_emoji} **{trend['category']}**")
+                            col4.metric("พูดถึง", trend['mentions'])
+                            col5.markdown(f"📱 {trend['platform']}")
+                            
+                            if trend.get('source_url') and trend['source_url'] != "Unknown":
+                                st.markdown(f"🔗 [ดูแหล่งข้อมูล]({trend['source_url']})")
+                            
+                            st.divider()
+                else:
+                    st.info("ไม่พบเทรนด์ในวันที่เลือก")
+                
+                # กราฟแสดงการพูดถึงในแต่ละวัน
+                st.subheader("📊 กราฟการพูดถึงในแต่ละวัน")
+                
+                # สร้างกราฟเส้นแสดงการพูดถึงของแต่ละเทรนด์
+                fig_line = px.line(
+                    daily_df, 
+                    x='date_display', 
+                    y='mentions', 
+                    color='trend_name',
+                    title="การพูดถึงของแต่ละเทรนด์ในแต่ละวัน",
+                    labels={'date_display': 'วันที่', 'mentions': 'จำนวนการพูดถึง', 'trend_name': 'ชื่อเทรนด์'}
+                )
+                fig_line.update_layout(
+                    xaxis_title="วันที่",
+                    yaxis_title="จำนวนการพูดถึง",
+                    legend_title="ชื่อเทรนด์",
+                    height=500
+                )
+                st.plotly_chart(fig_line, use_container_width=True)
+                
+                # กราฟแท่งแสดงการพูดถึงรวมในแต่ละวัน
+                daily_totals = daily_df.groupby('date_display')['mentions'].sum().reset_index()
+                daily_totals = daily_totals.sort_values('date_display')
+                
+                fig_bar = px.bar(
+                    daily_totals,
+                    x='date_display',
+                    y='mentions',
+                    title="การพูดถึงรวมในแต่ละวัน",
+                    labels={'date_display': 'วันที่', 'mentions': 'จำนวนการพูดถึงรวม'},
+                    color='mentions',
+                    color_continuous_scale='Viridis'
+                )
+                fig_bar.update_layout(
+                    xaxis_title="วันที่",
+                    yaxis_title="จำนวนการพูดถึงรวม",
+                    height=400
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("ไม่พบข้อมูลการพูดถึงในแต่ละวัน")
+            
             # === แสดงกราฟวงกลม ===
             col1, col2 = st.columns(2)
             
